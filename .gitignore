@@ -1,1 +1,5 @@
 .venv
+waste-watch-server/datasets
+
+food_yolo
+food_dataset
