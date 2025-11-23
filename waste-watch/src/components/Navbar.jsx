@@ -40,7 +40,7 @@ function Navbar() {
                         </li>
                         <li className="nav-item">
                             <Link className="nav-link active" to="/menus">
-                                Add Menu
+                                Menus
                             </Link>
                         </li>
                         <li className="nav-item">

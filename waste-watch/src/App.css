@@ -1,0 +1,12 @@
+.dashboard-row {
+    min-height: 48px;         /* tweak this number to taste */
+    display: flex;
+    align-items: center;      /* vertical center */
+    justify-content: center;  /* horizontal center */
+    padding: 6px 10px;        /* smaller padding so inputs fit nicely */
+}
+
+.dashboard-row input {
+    width: 100%;
+    height: 32px;             /* keep inputs from stretching the row */
+}

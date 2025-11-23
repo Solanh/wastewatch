@@ -5,20 +5,7 @@ import Navbar from "../components/navbar";
 import Footer from "../components/Footer";
 import classNames from "../data/classNames.json";
 
-async function createMenu(menu) {
-    const res = await fetch("/api/menus", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(menu),
-    });
-
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Failed to save menu");
-    }
-
-    return res.json();
-}
+const API_BASE = "/api"; // or "http://localhost:8000/api" if no proxy
 
 function AddMenu() {
     const [selectedItem, setSelectedItem] = useState(null);
@@ -83,8 +70,28 @@ function AddMenu() {
 
         try {
             setIsSubmitting(true);
-            await createMenu(payload);
-            alert("Menu saved successfully!");
+            const res = await fetch(`${API_BASE}/menus`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text || "Failed to create menu");
+            }
+
+            const saved = await res.json();
+            console.log("Created menu:", saved);
+            alert("Menu created!");
+
+            // Remember this as the last used menu
+            const newId = saved.id || saved._id;
+            if (newId) {
+                localStorage.setItem("lastMenuId", newId);
+            }
+
+            // optional: clear form
             setMenuItems([]);
             setMenuName("");
         } catch (err) {

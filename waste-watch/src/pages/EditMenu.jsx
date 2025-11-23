@@ -1,34 +1,19 @@
 // src/pages/EditMenu.jsx
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import Select from "react-select";
 import Navbar from "../components/navbar";
 import Footer from "../components/Footer";
 import classNames from "../data/classNames.json";
 
-async function fetchMenu(id) {
-    const res = await fetch(`/api/menus/${id}`);
-    if (!res.ok) throw new Error("Failed to fetch menu");
-    return res.json();
-}
-
-async function updateMenu(id, menu) {
-    const res = await fetch(`/api/menus/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(menu),
-    });
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Failed to update menu");
-    }
-    return res.json();
-}
+const API_BASE = "/api"; // or "http://localhost:8000/api" if you don't have a proxy
 
 function EditMenu() {
     const { id } = useParams();
+    const navigate = useNavigate();
+
     const [menuName, setMenuName] = useState("");
-    const [menuItems, setMenuItems] = useState([]);
+    const [menuItems, setMenuItems] = useState([]); // [{ value, label, quantity }]
     const [selectedItem, setSelectedItem] = useState(null);
     const [loading, setLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -36,24 +21,34 @@ function EditMenu() {
 
     const options = classNames.map((name) => ({ value: name, label: name }));
 
-    useEffect(() => {
-        (async () => {
-            try {
-                const menu = await fetchMenu(id);
-                setMenuName(menu.name || "");
-                setMenuItems(
-                    (menu.items || []).map((item) => ({
-                        value: item.name,
-                        label: item.name,
-                        quantity: item.quantity,
-                    }))
-                );
-            } catch (err) {
-                setError(err.message);
-            } finally {
-                setLoading(false);
+    const loadMenu = async () => {
+        try {
+            setLoading(true);
+            const res = await fetch(`${API_BASE}/menus/${id}`);
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text || "Failed to load menu");
             }
-        })();
+            const menu = await res.json();
+            setMenuName(menu.name || "");
+            setMenuItems(
+                (menu.items || []).map((item) => ({
+                    value: item.name,
+                    label: item.name,
+                    quantity: item.quantity,
+                }))
+            );
+        } catch (err) {
+            console.error(err);
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadMenu();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
     const handleAddItem = () => {
@@ -61,10 +56,7 @@ function EditMenu() {
             selectedItem &&
             !menuItems.find((i) => i.value === selectedItem.value)
         ) {
-            setMenuItems((prev) => [
-                ...prev,
-                { ...selectedItem, quantity: 1 },
-            ]);
+            setMenuItems((prev) => [...prev, { ...selectedItem, quantity: 1 }]);
             setSelectedItem(null);
         }
     };
@@ -111,8 +103,26 @@ function EditMenu() {
 
         try {
             setIsSubmitting(true);
-            await updateMenu(id, payload);
-            alert("Menu updated successfully!");
+            const res = await fetch(`${API_BASE}/menus/${id}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text || "Failed to update menu");
+            }
+            const updated = await res.json();
+            console.log("Updated menu:", updated);
+            alert("Menu updated!");
+
+            // Remember this as the last used menu
+            const updatedId = updated.id || updated._id || id;
+            if (updatedId) {
+                localStorage.setItem("lastMenuId", updatedId);
+            }
+
+            navigate("/menus");
         } catch (err) {
             console.error(err);
             alert("Error updating menu: " + err.message);
