@@ -1,5 +1,28 @@
-.venv
-waste-watch-server/datasets
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dist/
 
-food_yolo
-food_dataset
+# Python
+.venv/
+__pycache__/
+
+# Environment
+.env
+
+# Datasets & models
+dataset-ninja/
+old_food_dataset/
+yolo_food_dataset/
+onehitwonders/
+runs/
+*.pt
+
+# Server test data
+waste-watch-server/test_dataset/
+
+# OS files
+.DS_Store
+Thumbs.db

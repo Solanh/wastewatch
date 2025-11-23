@@ -9,6 +9,8 @@ import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import AddItem from "./pages/AddItem";
 import AddMenu from "./pages/AddMenu";
+import MenusList from "./pages/MenuList";
+import EditMenu from "./pages/EditMenu";
 
 function App() {
     const [count, setCount] = useState(0);
@@ -20,7 +22,9 @@ function App() {
                 <Route path="/reports" element={<Reports />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/add-item" element={<AddItem />} />
-                <Route path="/add-menu" element={<AddMenu />} />
+                <Route path="/menus/new" element={<AddMenu />} />
+                <Route path="/menus" element={<MenusList />} />
+                <Route path="/menus/:id" element={<EditMenu />} />
             </Routes>
         </>
     );

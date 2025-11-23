@@ -1,32 +1,60 @@
-// src/pages/AddMenu.jsx
-import React, { useState } from "react";
+// src/pages/EditMenu.jsx
+import React, { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
 import Select from "react-select";
 import Navbar from "../components/navbar";
 import Footer from "../components/Footer";
 import classNames from "../data/classNames.json";
 
-async function createMenu(menu) {
-    const res = await fetch("/api/menus", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(menu),
-    });
-
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Failed to save menu");
-    }
-
+async function fetchMenu(id) {
+    const res = await fetch(`/api/menus/${id}`);
+    if (!res.ok) throw new Error("Failed to fetch menu");
     return res.json();
 }
 
-function AddMenu() {
-    const [selectedItem, setSelectedItem] = useState(null);
-    const [menuItems, setMenuItems] = useState([]); // [{ value, label, quantity }]
+async function updateMenu(id, menu) {
+    const res = await fetch(`/api/menus/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(menu),
+    });
+    if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Failed to update menu");
+    }
+    return res.json();
+}
+
+function EditMenu() {
+    const { id } = useParams();
     const [menuName, setMenuName] = useState("");
+    const [menuItems, setMenuItems] = useState([]);
+    const [selectedItem, setSelectedItem] = useState(null);
+    const [loading, setLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [error, setError] = useState("");
 
     const options = classNames.map((name) => ({ value: name, label: name }));
+
+    useEffect(() => {
+        (async () => {
+            try {
+                const menu = await fetchMenu(id);
+                setMenuName(menu.name || "");
+                setMenuItems(
+                    (menu.items || []).map((item) => ({
+                        value: item.name,
+                        label: item.name,
+                        quantity: item.quantity,
+                    }))
+                );
+            } catch (err) {
+                setError(err.message);
+            } finally {
+                setLoading(false);
+            }
+        })();
+    }, [id]);
 
     const handleAddItem = () => {
         if (
@@ -35,7 +63,7 @@ function AddMenu() {
         ) {
             setMenuItems((prev) => [
                 ...prev,
-                { ...selectedItem, quantity: 1 }, // default quantity
+                { ...selectedItem, quantity: 1 },
             ]);
             setSelectedItem(null);
         }
@@ -83,23 +111,45 @@ function AddMenu() {
 
         try {
             setIsSubmitting(true);
-            await createMenu(payload);
-            alert("Menu saved successfully!");
-            setMenuItems([]);
-            setMenuName("");
+            await updateMenu(id, payload);
+            alert("Menu updated successfully!");
         } catch (err) {
             console.error(err);
-            alert("Error saving menu: " + err.message);
+            alert("Error updating menu: " + err.message);
         } finally {
             setIsSubmitting(false);
         }
     };
 
+    if (loading) {
+        return (
+            <>
+                <Navbar />
+                <div className="container mt-5 pt-5">
+                    <p>Loading menu...</p>
+                </div>
+                <Footer />
+            </>
+        );
+    }
+
+    if (error) {
+        return (
+            <>
+                <Navbar />
+                <div className="container mt-5 pt-5">
+                    <p className="text-danger">Error: {error}</p>
+                </div>
+                <Footer />
+            </>
+        );
+    }
+
     return (
         <>
             <Navbar />
             <div className="container mt-5 pt-5">
-                <h3 className="text-center mb-4">Create Menu</h3>
+                <h3 className="text-center mb-4">Edit Menu</h3>
 
                 {/* Menu name */}
                 <div className="col-6 mx-auto mb-3">
@@ -108,11 +158,10 @@ function AddMenu() {
                         className="form-control"
                         value={menuName}
                         onChange={(e) => setMenuName(e.target.value)}
-                        placeholder="e.g., Lunch Menu - Monday"
                     />
                 </div>
 
-                {/* Selector + Add Selected to Menu */}
+                {/* Selector */}
                 <div className="col-6 mx-auto mb-3">
                     <Select
                         options={options}
@@ -132,7 +181,7 @@ function AddMenu() {
                     </div>
                 </div>
 
-                {/* Submit Menu card with quantities */}
+                {/* Submit Menu card */}
                 {menuItems.length > 0 && (
                     <div className="col-10 mx-auto mt-4 card">
                         <div className="card-header text-center">
@@ -193,8 +242,8 @@ function AddMenu() {
                                     disabled={isSubmitting}
                                 >
                                     {isSubmitting
-                                        ? "Submitting..."
-                                        : "Submit Menu"}
+                                        ? "Saving..."
+                                        : "Save Changes"}
                                 </button>
                             </div>
                         </div>
@@ -206,4 +255,4 @@ function AddMenu() {
     );
 }
 
-export default AddMenu;
+export default EditMenu;
