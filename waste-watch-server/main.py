@@ -1,15 +1,13 @@
 # main.py
-from typing import List
+from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from bson import ObjectId
 from contextlib import asynccontextmanager
-from datetime import date 
-import time
+from datetime import datetime, timedelta
 
-from database import client, collection, menus_collection
-from models import Listing, MenuModel
+from database import client as mongo_client, collection, menus_collection  # type: ignore
 
 import google.genai as genai
 from dotenv import load_dotenv
@@ -21,42 +19,40 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 if not API_KEY:
     raise RuntimeError("GEMINI_API_KEY is missing from .env")
 
-client = genai.Client(api_key=API_KEY)
-
+# Gemini client
+genai_client = genai.Client(api_key=API_KEY)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🔗 Connecting to MongoDB...")
-    yield
-    print("❌ Closing MongoDB connection...")
-    client.close()
+    # You could test a quick ping here if you want
+    try:
+        yield
+    finally:
+        print("❌ Closing MongoDB connection...")
+        mongo_client.close()
+
 
 app = FastAPI(lifespan=lifespan)
 
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],  # tighten later if you want
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-
 def to_object_id(id_str: str) -> ObjectId:
-    """Validate and convert string -> ObjectId, or raise 400."""
     try:
         return ObjectId(id_str)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid id format")
 
+
 def serialize_menu(doc) -> dict:
-    """
-    Convert a MongoDB menu document into a JSON-serializable dict that
-    matches what your React expects: { id, name, items: [{name, quantity}] }.
-    """
     return {
         "id": str(doc["_id"]),
         "name": doc.get("name", ""),
@@ -75,8 +71,14 @@ def health():
     return {"status": "ok"}
 
 
+# ---------- Listing / scanning endpoints ----------
+
 @app.post("/listing")
-def create_listing(listing: Listing):
+def create_listing(listing):
+    from models import Listing  # if you want to keep the Pydantic model
+    if not isinstance(listing, Listing):
+        listing = Listing(**listing)
+
     try:
         weekday_index = datetime.now().weekday()
         day_number = weekday_index + 1
@@ -126,19 +128,29 @@ def increment_item_waste(item_id: str):
     return updated
 
 
-@app.get("/api/summary")
-def get_summary():
-    try:
-        week_data = compute_waste_summary()
+# ---------- Waste summary + Gemini ----------
 
-        response = client.models.generate_content(
+@app.get("/api/summary")
+def get_summary(menu_id: Optional[int] = None, scope: str = "menu"):
+    """
+    menu_id: optional menu_num to filter by
+    scope: "menu" | "day" | "week" | "month"
+    """
+    try:
+        summary_data = compute_waste_summary(menu_id=menu_id, scope=scope)
+
+        response = genai_client.models.generate_content(
             model="gemini-2.5-flash",
             contents=(
-                "In not more than 6 lines not including lists: Given this food waste average data by week, "
-                f"{week_data}, discuss the data by stating the major "
-                "contributor and its percentage, then briefly recommend alist of"
-                "similar foods to the items with the lowest waste."
-                "return response cleanly in markdown"
+                "In not more than 6 lines (not including lists): "
+                "Given this food waste data where each item has 'leftovers', "
+                "'wasted', and 'total_waste' (leftovers + wasted), "
+                f"{summary_data}, identify the major contributor to total waste "
+                "and approximate its percentage of overall waste. "
+                "Briefly compare leftovers vs explicit wasted portions and "
+                "recommend a short list of similar foods to the items with the "
+                "lowest total waste that could be emphasized more. "
+                "Return the response cleanly in markdown."
             ),
         )
 
@@ -146,192 +158,238 @@ def get_summary():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# @app.get("/waste-summary")
-# def create_summary():
-#     try:
-#         # reuse the existing function to get all items
-#         all_items = get_all_items()
 
-#         totals = {}
-#         for entry in all_items:
-#             food = entry["item"]
-#             wasted = entry.get("wasted", 0)
+def compute_waste_summary(menu_id: Optional[int] = None, scope: str = "menu"):
+    now = datetime.utcnow()
 
-#             if food not in totals:
-#                 totals[food] = 0
+    # Only menu rows, not /listing scans
+    query: dict = {"menu_num": {"$exists": True}}
 
-#             totals[food] += wasted
+    if menu_id is not None:
+        query["menu_num"] = int(menu_id)
 
-#         individual_waste = [
-#             {"item": food, "wasted": wasted}
-#             for food, wasted in totals.items()
-#         ]
+    start = end = None
+    if scope == "day":
+        start = datetime(now.year, now.month, now.day)
+        end = start + timedelta(days=1)
+    elif scope == "week":
+        start = now - timedelta(days=7)
+        end = now
+    elif scope == "month":
+        start = now - timedelta(days=30)
+        end = now
 
-#         total_waste = sum(totals.values())
+    if start and end:
+        query["created_at"] = {"$gte": start, "$lt": end}
 
-#         occurances = {}
-#         for item in all_items:
-#             name = item["item"]
-#             num_items = get_items_by_name(name)
-#             occurances[name] = len(num_items)
+    docs = list(collection.find(query))
 
-#         ratio_waste = [
-#             {
-#                 "item": item["item"],
-#                 "wasted": int(
-#                     item["wasted"] / occurances.get(item["item"], 1)
-#                 ),
-#             }
-#             for item in individual_waste
-#         ]
+    stats: dict[str, dict[str, int]] = {}
+    # stats[item] = { "leftovers": ..., "wasted": ..., "count": ... }
 
-#         print("individual_waste:", individual_waste)
-#         print("ratio_waste:", ratio_waste)
-#         print("total_waste:", total_waste)
-
-#         return {
-#             "individual_waste": individual_waste,
-#             "total_waste": total_waste,
-#         }
-
-#     except Exception as e:
-#         raise HTTPException(status_code=400, detail=str(e))
-
-def compute_waste_summary():
-    # reuse the existing function to get all items
-    all_items = get_all_items()
-
-    totals = {}
-    for entry in all_items:
+    for entry in docs:
         food = entry["item"]
-        wasted = entry.get("wasted", 0)
 
-        if food not in totals:
-            totals[food] = 0
+        qty = int(entry.get("qty", 0) or 0)
+        taken = int(entry.get("taken", 0) or 0)
+        wasted = int(entry.get("wasted", 0) or 0)
 
-        totals[food] += wasted
+        leftovers = max(qty - taken, 0)
 
-    individual_waste = [
-        {"item": food, "wasted": wasted}
-        for food, wasted in totals.items()
-    ]
+        if food not in stats:
+            stats[food] = {"leftovers": 0, "wasted": 0, "count": 0}
 
-    total_waste = sum(totals.values())
+        stats[food]["leftovers"] += leftovers
+        stats[food]["wasted"] += wasted
+        stats[food]["count"] += 1
 
-    occurances = {}
-    for item in all_items:
-        name = item["item"]
-        num_items = get_items_by_name(name)
-        occurances[name] = len(num_items)
+    individual_waste = []
+    total_waste = 0
 
-    ratio_waste = [
-        {
-            "item": item["item"],
-            "wasted": int(
-                item["wasted"] / occurances.get(item["item"], 1)
-            ),
-        }
-        for item in individual_waste
-    ]
+    for food, s in stats.items():
+        item_total = s["leftovers"] + s["wasted"]
+        total_waste += item_total
+        individual_waste.append(
+            {
+                "item": food,
+                "leftovers": s["leftovers"],
+                "wasted": s["wasted"],
+                "total_waste": item_total,
+            }
+        )
 
-    print("individual_waste:", individual_waste)
-    print("ratio_waste:", ratio_waste)
-    print("total_waste:", total_waste)
+    individual_waste.sort(key=lambda x: x["total_waste"], reverse=True)
 
     return {
         "individual_waste": individual_waste,
         "total_waste": total_waste,
     }
 
+@app.get("/api/waste-summary")
+def create_summary(menu_id: Optional[int] = None, scope: str = "menu"):
 
-@app.get("/waste-summary")
-def create_summary():
     try:
-        return compute_waste_summary()
+        return compute_waste_summary(menu_id=menu_id, scope=scope)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+# ---------- Menu helpers + CRUD ----------
 
-# CREATE MENU
-@app.post("/api/menus", response_model=MenuModel)
-def create_menu(menu: MenuModel):
-    """
-    Expect payload:
-    {
-        "name": "Lunch Menu - Monday",
+def listings_to_menu(menu_num: int, docs: list[dict]) -> dict:
+    if not docs:
+        raise HTTPException(status_code=404, detail="Menu not found")
+
+    first = docs[0]
+    return {
+        "id": menu_num,
+        "name": first.get("menu_name", ""),
+        "meal_period": first.get("meal_period"),
         "items": [
-            {"name": "Bread", "quantity": 5},
-            ...
-        ]
+            {
+                "name": d["item"],
+                "quantity": d["qty"],
+                "taken": d.get("taken", 0),
+                "wasted": d.get("wasted", 0),
+            }
+            for d in docs
+        ],
     }
-    """
+
+
+@app.post("/api/menus")
+def create_menu(menu: dict = Body(...)):
     try:
-        data = menu.model_dump(exclude={"id"}, by_alias=False)
-        result = menus_collection.insert_one(data)
-        created = menus_collection.find_one({"_id": result.inserted_id})
-        created["_id"] = str(created["_id"])
-        # FastAPI will coerce this dict into MenuModel because of response_model
-        return created
+        name = menu["name"]
+        meal_period = int(menu["meal_period"])
+        items = menu["items"]
+        day = menu.get("day")
+
+        max_doc = collection.find_one(
+            {"menu_num": {"$exists": True}},
+            sort=[("menu_num", -1)]
+        )
+        next_menu_num = (max_doc["menu_num"] if max_doc else 0) + 1
+        now = datetime.utcnow()
+
+        docs = []
+        for it in items:
+            docs.append({
+                "item": it["name"],
+                "qty": int(it["quantity"]),
+                "meal_period": meal_period,
+                "day": day,
+                "taken": int(it.get("taken", 0)),
+                "wasted": int(it.get("wasted", 0)),
+                "menu_num": next_menu_num,
+                "menu_name": name,
+                "created_at": now,
+            })
+
+        collection.insert_many(docs)
+
+        return listings_to_menu(next_menu_num, docs)
+
+    except KeyError as e:
+        raise HTTPException(status_code=400, detail=f"Missing field {e}")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# LIST MENUS
-@app.get("/api/menus", response_model=List[MenuModel])
+@app.get("/api/menus")
 def list_menus():
     try:
-        docs = list(menus_collection.find())
-        for d in docs:
-            d["_id"] = str(d["_id"])
-        return docs
+        pipeline = [
+            {"$match": {"menu_num": {"$exists": True}}},
+            {
+                "$group": {
+                    "_id": "$menu_num",
+                    "menu_num": {"$first": "$menu_num"},
+                    "menu_name": {"$first": "$menu_name"},
+                    "meal_period": {"$first": "$meal_period"},
+                    "items": {
+                        "$push": {
+                            "name": "$item",
+                            "quantity": "$qty",
+                            "taken": {"$ifNull": ["$taken", 0]},
+                            "wasted": {"$ifNull": ["$wasted", 0]},
+                        }
+                    },
+                }
+            },
+            {"$sort": {"menu_num": 1}},
+        ]
+
+        agg = list(collection.aggregate(pipeline))
+        menus = [
+            {
+                "id": m["menu_num"],
+                "name": m.get("menu_name", ""),
+                "meal_period": m.get("meal_period"),
+                "items": m["items"],
+            }
+            for m in agg
+        ]
+
+        return menus
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# GET SINGLE MENU
-@app.get("/api/menus/{menu_id}", response_model=MenuModel)
-def get_menu(menu_id: str):
-    oid = to_object_id(menu_id)
-    doc = menus_collection.find_one({"_id": oid})
-    if not doc:
-        raise HTTPException(status_code=404, detail="Menu not found")
-    doc["_id"] = str(doc["_id"])
-    return doc
-
-
-# UPDATE MENU
-@app.put("/api/menus/{menu_id}", response_model=MenuModel)
-def update_menu(menu_id: str, menu: MenuModel):
-    """
-    React sends payload like:
-    {
-      "name": "Updated Name",
-      "items": [ { "name": "...", "quantity": 3 }, ...]
-    }
-    """
-    oid = to_object_id(menu_id)
-
-    data = menu.model_dump(exclude={"id"}, by_alias=False)
-
-    result = menus_collection.update_one(
-        {"_id": oid},
-        {"$set": data}
-    )
-
-    if result.matched_count == 0:
+@app.get("/api/menus/{menu_id}")
+def get_menu(menu_id: int):
+    docs = list(collection.find({"menu_num": int(menu_id)}))
+    if not docs:
         raise HTTPException(status_code=404, detail="Menu not found")
 
-    updated = menus_collection.find_one({"_id": oid})
-    updated["_id"] = str(updated["_id"])
-    return updated
+    for doc in docs:
+        if "wasted" not in doc:
+            doc["wasted"] = 0
+
+    return listings_to_menu(int(menu_id), docs)
 
 
-# DELETE MENU
+@app.put("/api/menus/{menu_id}")
+def update_menu(menu_id: int, menu: dict = Body(...)):
+    try:
+        menu_id = int(menu_id)
+        name = menu["name"]
+        meal_period = int(menu["meal_period"])
+        items = menu["items"]
+        day = menu.get("day")
+
+        existing = collection.find_one({"menu_num": menu_id})
+        base_created_at = existing.get("created_at") if existing else datetime.utcnow()
+
+        collection.delete_many({"menu_num": menu_id})
+
+        docs = []
+        for it in items:
+            docs.append({
+                "item": it["name"],
+                "qty": int(it["quantity"]),
+                "meal_period": meal_period,
+                "day": day,
+                "taken": int(it.get("taken", 0)),
+                "wasted": int(it.get("wasted", 0)),
+                "menu_num": menu_id,
+                "menu_name": name,
+                "created_at": base_created_at,
+            })
+
+        if docs:
+            collection.insert_many(docs)
+
+        return listings_to_menu(menu_id, docs)
+
+    except KeyError as e:
+        raise HTTPException(status_code=400, detail=f"Missing field {e}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.delete("/api/menus/{menu_id}", status_code=204)
-def delete_menu(menu_id: str):
-    oid = to_object_id(menu_id)
-    result = menus_collection.delete_one({"_id": oid})
+def delete_menu(menu_id: int):
+    result = collection.delete_many({"menu_num": int(menu_id)})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Menu not found")
-    # 204 No Content → just return None
     return None

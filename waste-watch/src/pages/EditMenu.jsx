@@ -15,6 +15,8 @@ function EditMenu() {
     const [menuName, setMenuName] = useState("");
     const [menuItems, setMenuItems] = useState([]); // [{ value, label, quantity }]
     const [selectedItem, setSelectedItem] = useState(null);
+    const [mealPeriod, setMealPeriod] = useState(2); // 1=breakfast,2=lunch,3=dinner
+
     const [loading, setLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState("");
@@ -24,13 +26,18 @@ function EditMenu() {
     const loadMenu = async () => {
         try {
             setLoading(true);
+            setError("");
+
             const res = await fetch(`${API_BASE}/menus/${id}`);
             if (!res.ok) {
                 const text = await res.text();
                 throw new Error(text || "Failed to load menu");
             }
+
             const menu = await res.json();
             setMenuName(menu.name || "");
+            setMealPeriod(menu.meal_period ?? 2);
+
             setMenuItems(
                 (menu.items || []).map((item) => ({
                     value: item.name,
@@ -95,6 +102,7 @@ function EditMenu() {
 
         const payload = {
             name: menuName.trim(),
+            meal_period: mealPeriod,
             items: menuItems.map((item) => ({
                 name: item.value,
                 quantity: Number(item.quantity),
@@ -158,7 +166,7 @@ function EditMenu() {
     return (
         <>
             <Navbar />
-            <div className="container mt-5 pt-5">
+            <div className="container my-5 pt-5">
                 <h3 className="text-center mb-4">Edit Menu</h3>
 
                 {/* Menu name */}
@@ -169,6 +177,20 @@ function EditMenu() {
                         value={menuName}
                         onChange={(e) => setMenuName(e.target.value)}
                     />
+                </div>
+
+                {/* Meal period */}
+                <div className="col-6 mx-auto mb-3">
+                    <label className="form-label">Meal Period</label>
+                    <select
+                        className="form-select"
+                        value={mealPeriod}
+                        onChange={(e) => setMealPeriod(Number(e.target.value))}
+                    >
+                        <option value={1}>Breakfast</option>
+                        <option value={2}>Lunch</option>
+                        <option value={3}>Dinner</option>
+                    </select>
                 </div>
 
                 {/* Selector */}

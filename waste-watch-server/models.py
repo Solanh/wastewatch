@@ -12,11 +12,14 @@ class Listing(BaseModel):
     meal_period: int
     day: Optional[int] = None
     wasted: int = 0
+    menu_num: int
+    created_at: int
 
     model_config = {
         "extra": "allow",   # allow extra fields in input
       
     }
+    
 
 
 

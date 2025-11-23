@@ -1,9 +1,8 @@
 // src/pages/Home.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Navbar from "../components/navbar";
 import Footer from "../components/Footer";
-import DashboardItem from "../components/DashboardItem";
 import ReactMarkdown from "react-markdown";
 
 const API_BASE = "/api";
@@ -19,8 +18,26 @@ function Home() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
+
     const [summary, setSummary] = useState("");
     const [summaryLoading, setSummaryLoading] = useState(false);
+    const [summaryScope, setSummaryScope] = useState("menu"); // "menu", "day", "week", "month"
+
+    // Prevent double-init in React 18 StrictMode
+    const hasInitializedRef = useRef(false);
+
+    // For cancelling / ignoring stale summary requests
+    const summaryRequestIdRef = useRef(0);
+
+    const getTopWastedItem = () => {
+        if (!items || items.length === 0) return null;
+
+        const highest = items.reduce((max, curr) =>
+            curr.wasted > max.wasted ? curr : max
+        );
+
+        return highest;
+    };
 
     // ---------------------------------------
     // Save menu
@@ -31,8 +48,15 @@ function Home() {
         try {
             setSaving(true);
 
+            // Look up the menu metadata (including meal_period) from state
+            const currentMenuMeta = menus.find(
+                (m) => String(m.id ?? m._id) === String(id)
+            );
+            const meal_period = currentMenuMeta?.meal_period ?? 1; // default to breakfast if missing
+
             const payload = {
                 name: currentName,
+                meal_period,
                 items: currentItems.map((it) => ({
                     name: it.item,
                     quantity: it.qty,
@@ -72,22 +96,44 @@ function Home() {
     };
 
     // ---------------------------------------
-    // Summary
+    // Summary (for current menu + scope)
     // ---------------------------------------
-    const fetchSummary = async () => {
+    const fetchSummary = async (menuId, scope) => {
+        const targetMenuId = menuId ?? selectedMenuId;
+        const targetScope = scope ?? summaryScope;
+
+        if (!targetMenuId) {
+            setSummary("Select a menu to see a summary.");
+            return;
+        }
+
+        const requestId = ++summaryRequestIdRef.current;
+
         try {
             setSummaryLoading(true);
 
-            const res = await fetch(`${API_BASE}/summary`);
+            const params = new URLSearchParams({
+                menu_id: String(targetMenuId),
+                scope: targetScope,
+            });
+
+            const res = await fetch(`${API_BASE}/summary?${params.toString()}`);
             if (!res.ok) throw new Error("Failed to fetch summary");
 
             const data = await res.json();
+
+            // Ignore if another request started after this one
+            if (requestId !== summaryRequestIdRef.current) return;
+
             setSummary(data.summary);
         } catch (err) {
             console.error(err);
+            if (requestId !== summaryRequestIdRef.current) return;
             setSummary("Error fetching summary");
         } finally {
-            setSummaryLoading(false);
+            if (requestId === summaryRequestIdRef.current) {
+                setSummaryLoading(false);
+            }
         }
     };
 
@@ -134,6 +180,9 @@ function Home() {
     // Load menus initially
     // ---------------------------------------
     useEffect(() => {
+        if (hasInitializedRef.current) return;
+        hasInitializedRef.current = true;
+
         const fetchMenusAndSelect = async () => {
             try {
                 setLoading(true);
@@ -146,9 +195,16 @@ function Home() {
                 }
 
                 const data = await res.json();
-                setMenus(data);
 
-                if (data.length === 0) {
+                // Normalize IDs as strings for consistency
+                const normalized = data.map((m) => ({
+                    ...m,
+                    id: String(m.id ?? m._id),
+                }));
+
+                setMenus(normalized);
+
+                if (normalized.length === 0) {
                     setMenuName("");
                     setItems([]);
                     setSelectedMenuId("");
@@ -157,7 +213,7 @@ function Home() {
                 }
 
                 const lastStoredId = localStorage.getItem("lastMenuId");
-                const ids = data.map((m) => m.id || m._id);
+                const ids = normalized.map((m) => m.id);
 
                 let initialId = paramMenuId || lastStoredId;
                 if (!initialId || !ids.includes(initialId)) {
@@ -172,6 +228,7 @@ function Home() {
                 }
 
                 await loadMenuById(initialId);
+                await fetchSummary(initialId, summaryScope);
             } catch (err) {
                 console.error(err);
                 setError(err.message);
@@ -180,12 +237,8 @@ function Home() {
         };
 
         fetchMenusAndSelect();
-    }, [paramMenuId]);
-
-    // Load summary once
-    useEffect(() => {
-        fetchSummary();
-    }, []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [paramMenuId, navigate]);
 
     // Change menu
     const handleMenuChange = async (e) => {
@@ -196,27 +249,34 @@ function Home() {
         navigate(`/dashboard/${newId}`, { replace: true });
 
         await loadMenuById(newId);
+        await fetchSummary(newId, summaryScope);
+    };
+
+    // Change summary scope
+    const handleScopeChange = async (e) => {
+        const newScope = e.target.value;
+        setSummaryScope(newScope);
+        await fetchSummary(selectedMenuId, newScope);
     };
 
     // ---------------------------------------
     // Handle Taken Qty edits
     // ---------------------------------------
-    const handleTakenChange = async (index, newValue) => {
+    const handleTakenChange = (index, newValue) => {
         const taken = Math.max(0, Number(newValue) || 0);
 
         setItems((prev) => {
-            const copy = [...prev];
-            const item = { ...copy[index] };
-            item.taken = Math.min(taken, item.qty);
-            copy[index] = item;
-            return copy;
+            const updated = prev.map((it, idx) =>
+                idx === index
+                    ? { ...it, taken: Math.min(taken, it.qty) }
+                    : it
+            );
+
+            // Save updated items for current menu
+            saveMenuToBackend(selectedMenuId, updated, menuName);
+
+            return updated;
         });
-
-        const currentItems = items.map((it, idx) =>
-            idx === index ? { ...it, taken: Math.min(taken, it.qty) } : it
-        );
-
-        await saveMenuToBackend(selectedMenuId, currentItems, menuName);
     };
 
     // ---------------------------------------
@@ -226,7 +286,7 @@ function Home() {
         <div className="d-flex flex-column min-vh-100">
             <Navbar />
 
-            <main className="flex-grow-1">
+            <main className="flex-grow-1 mb-5">
                 <div className="container mt-5 pt-5 pb-5">
                     {/* Header */}
                     <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
@@ -255,10 +315,7 @@ function Home() {
                                     Choose a menu...
                                 </option>
                                 {menus.map((menu) => (
-                                    <option
-                                        key={menu.id || menu._id}
-                                        value={menu.id || menu._id}
-                                    >
+                                    <option key={menu.id} value={menu.id}>
                                         {menu.name}
                                     </option>
                                 ))}
@@ -312,16 +369,26 @@ function Home() {
                                                                     data.qty -
                                                                     data.taken;
 
+                                                                const baseLiProps =
+                                                                    {
+                                                                        key: idx,
+                                                                        className:
+                                                                            "list-group-item p-1 d-flex align-items-center",
+                                                                        style: {
+                                                                            minHeight:
+                                                                                "38px",
+                                                                        },
+                                                                    };
+
                                                                 if (
                                                                     title ===
                                                                     "Taken Qty"
                                                                 ) {
                                                                     return (
                                                                         <li
-                                                                            key={
-                                                                                idx
+                                                                            {
+                                                                                ...baseLiProps
                                                                             }
-                                                                            className="list-group-item p-1"
                                                                         >
                                                                             <input
                                                                                 type="number"
@@ -372,14 +439,17 @@ function Home() {
                                                                 }
 
                                                                 return (
-                                                                    <DashboardItem
-                                                                        key={
-                                                                            idx
+                                                                    <li
+                                                                        {
+                                                                            ...baseLiProps
                                                                         }
-                                                                        item={
-                                                                            value
-                                                                        }
-                                                                    />
+                                                                    >
+                                                                        <span>
+                                                                            {
+                                                                                value
+                                                                            }
+                                                                        </span>
+                                                                    </li>
                                                                 );
                                                             }
                                                         )}
@@ -398,8 +468,8 @@ function Home() {
 
                             {/* RIGHT HALF: Analytics + Summary */}
                             <div className="col-12 col-lg-6 d-flex flex-column gap-3">
-                                {/* Analytics */}
-                                <div className="card shadow-sm">
+                                {/* Analytics (commented for now, but helper exists) */}
+                                {/* <div className="card shadow-sm">
                                     <div className="card-body">
                                         <h5 className="card-title mb-2">
                                             Analytics
@@ -414,24 +484,62 @@ function Home() {
                                         </p>
 
                                         <h6 className="fw-semibold">
-                                            Top wasted items
+                                            Top wasted item
                                         </h6>
-                                        <p className="text-muted mb-0">
-                                            No wasted items yet.
-                                        </p>
+                                        {(() => {
+                                            const top = getTopWastedItem();
+                                            if (!top || top.wasted === 0)
+                                                return (
+                                                    <p className="text-muted mb-0">
+                                                        No wasted items yet.
+                                                    </p>
+                                                );
+
+                                            return (
+                                                <p className="mb-0">
+                                                    <strong>
+                                                        {top.item}
+                                                    </strong>{" "}
+                                                    — {top.wasted} wasted
+                                                </p>
+                                            );
+                                        })()}
                                     </div>
-                                </div>
+                                </div> */}
 
                                 {/* Summary */}
                                 <div className="card shadow-sm flex-grow-1">
                                     <div className="card-body d-flex flex-column">
-                                        <div className="d-flex justify-content-between align-items-center mb-2">
-                                            <h5 className="card-title mb-0">
-                                                Summary
-                                            </h5>
+                                        <div className="d-flex flex-wrap justify-content-between align-items-center mb-2 gap-2">
+                                            <div className="d-flex align-items-center gap-2">
+                                                <h5 className="card-title mb-0">
+                                                    Summary
+                                                </h5>
+                                                <select
+                                                    className="form-select form-select-sm w-auto"
+                                                    value={summaryScope}
+                                                    onChange={handleScopeChange}
+                                                >
+                                                    <option value="menu">
+                                                        Current Menu
+                                                    </option>
+                                                    <option value="day">
+                                                        Today
+                                                    </option>
+                                                    <option value="week">
+                                                        This Week
+                                                    </option>
+                                                    <option value="month">
+                                                        This Month
+                                                    </option>
+                                                </select>
+                                            </div>
+
                                             <button
                                                 className="btn btn-sm btn-outline-primary"
-                                                onClick={fetchSummary}
+                                                onClick={() =>
+                                                    fetchSummary()
+                                                }
                                                 disabled={summaryLoading}
                                             >
                                                 {summaryLoading ? (
