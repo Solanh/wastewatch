@@ -5,26 +5,15 @@ import Navbar from "../components/navbar";
 import Footer from "../components/Footer";
 import classNames from "../data/classNames.json";
 
-async function createMenu(menu) {
-    const res = await fetch("/api/menus", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(menu),
-    });
-
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Failed to save menu");
-    }
-
-    return res.json();
-}
+const API_BASE = "/api"; // or "http://localhost:8000/api" if no proxy
 
 function AddMenu() {
     const [selectedItem, setSelectedItem] = useState(null);
     const [menuItems, setMenuItems] = useState([]); // [{ value, label, quantity }]
     const [menuName, setMenuName] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [mealPeriod, setMealPeriod] = useState(2); // 1=breakfast,2=lunch,3=dinner
+
 
     const options = classNames.map((name) => ({ value: name, label: name }));
 
@@ -75,6 +64,7 @@ function AddMenu() {
 
         const payload = {
             name: menuName.trim(),
+            meal_period: mealPeriod,
             items: menuItems.map((item) => ({
                 name: item.value,
                 quantity: Number(item.quantity),
@@ -83,8 +73,29 @@ function AddMenu() {
 
         try {
             setIsSubmitting(true);
-            await createMenu(payload);
-            alert("Menu saved successfully!");
+            const res = await fetch(`${API_BASE}/menus`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text || "Failed to create menu");
+            }
+
+            const saved = await res.json();
+            console.log("Created menu:", saved);
+            alert("Menu created!");
+            location.href = "/";
+
+            // Remember this as the last used menu
+            const newId = saved.id || saved._id;
+            if (newId) {
+                localStorage.setItem("lastMenuId", newId);
+            }
+
+            // optional: clear form
             setMenuItems([]);
             setMenuName("");
         } catch (err) {
@@ -98,7 +109,7 @@ function AddMenu() {
     return (
         <>
             <Navbar />
-            <div className="container mt-5 pt-5">
+            <div className="container my-5 pt-5">
                 <h3 className="text-center mb-4">Create Menu</h3>
 
                 {/* Menu name */}
@@ -110,6 +121,18 @@ function AddMenu() {
                         onChange={(e) => setMenuName(e.target.value)}
                         placeholder="e.g., Lunch Menu - Monday"
                     />
+                </div>
+                <div className="col-6 mx-auto mb-3">
+                    <label className="form-label">Meal Period</label>
+                    <select
+                        className="form-select"
+                        value={mealPeriod}
+                        onChange={(e) => setMealPeriod(Number(e.target.value))}
+                    >
+                        <option value={1}>Breakfast</option>
+                        <option value={2}>Lunch</option>
+                        <option value={3}>Dinner</option>
+                    </select>
                 </div>
 
                 {/* Selector + Add Selected to Menu */}
@@ -186,7 +209,7 @@ function AddMenu() {
                                 </tbody>
                             </table>
 
-                            <div className="text-center">
+                            <div className="text-center ">
                                 <button
                                     className="btn btn-success"
                                     onClick={handleSubmit}

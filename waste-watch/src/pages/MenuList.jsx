@@ -1,34 +1,56 @@
-// src/pages/MenusList.jsx
+// src/pages/MenuList.jsx
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Navbar from "../components/navbar";
 import Footer from "../components/Footer";
 
-async function fetchMenus() {
-    const res = await fetch("/api/menus");
-    if (!res.ok) {
-        throw new Error("Failed to fetch menus");
-    }
-    return res.json();
-}
+const API_BASE = "/api"; // or "http://localhost:8000/api"
 
 function MenusList() {
     const [menus, setMenus] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
-    useEffect(() => {
-        (async () => {
-            try {
-                const data = await fetchMenus();
-                setMenus(data); // [{id, name, items: [...], createdAt}, ...]
-            } catch (err) {
-                setError(err.message);
-            } finally {
-                setLoading(false);
+    const loadMenus = async () => {
+        try {
+            setLoading(true);
+            const res = await fetch(`${API_BASE}/menus`);
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text || "Failed to fetch menus");
             }
-        })();
+            const data = await res.json();
+            setMenus(data);
+        } catch (err) {
+            console.error(err);
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadMenus();
     }, []);
+
+    const handleDelete = async (id) => {
+        if (!window.confirm("Delete this menu?")) return;
+
+        try {
+            const res = await fetch(`${API_BASE}/menus/${id}`, {
+                method: "DELETE",
+            });
+            if (!res.ok && res.status !== 204) {
+                const text = await res.text();
+                throw new Error(text || "Failed to delete menu");
+            }
+            // Refresh list
+            setMenus((prev) => prev.filter((m) => m._id !== id && m.id !== id));
+        } catch (err) {
+            console.error(err);
+            alert("Error deleting menu: " + err.message);
+        }
+    };
 
     return (
         <>
@@ -54,32 +76,39 @@ function MenusList() {
                             <tr>
                                 <th>Name</th>
                                 <th>Items</th>
-                                <th>Created</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {menus.map((menu) => (
-                                <tr key={menu.id}>
-                                    <td>{menu.name}</td>
-                                    <td>{menu.items?.length ?? 0}</td>
-                                    <td>
-                                        {menu.createdAt
-                                            ? new Date(
-                                                  menu.createdAt
-                                              ).toLocaleString()
-                                            : "-"}
-                                    </td>
-                                    <td>
-                                        <Link
-                                            className="btn btn-sm btn-secondary me-2"
-                                            to={`/menus/${menu.id}`}
-                                        >
-                                            Edit
-                                        </Link>
-                                    </td>
-                                </tr>
-                            ))}
+                            {menus.map((menu) => {
+                                const id = menu._id || menu.id;
+                                return (
+                                    <tr key={id}>
+                                        <td>{menu.name}</td>
+                                        <td>{menu.items?.length ?? 0}</td>
+                                        <td>
+                                            <Link
+                                                className="btn btn-sm btn-primary me-2"
+                                                to={`/dashboard/${id}`}
+                                            >
+                                                Use Menu
+                                            </Link>
+                                            <Link
+                                                className="btn btn-sm btn-secondary me-2"
+                                                to={`/menus/${id}`}
+                                            >
+                                                Edit
+                                            </Link>
+                                            <button
+                                                className="btn btn-sm btn-danger"
+                                                onClick={() => handleDelete(id)}
+                                            >
+                                                Delete
+                                            </button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                 )}
