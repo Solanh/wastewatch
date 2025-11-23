@@ -1,2 +1,33 @@
+<<<<<<< HEAD
 .venv
 .env
+=======
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dist/
+
+# Python
+.venv/
+__pycache__/
+
+# Environment
+.env
+
+# Datasets & models
+dataset-ninja/
+old_food_dataset/
+yolo_food_dataset/
+onehitwonders/
+runs/
+*.pt
+
+# Server test data
+waste-watch-server/test_dataset/
+
+# OS files
+.DS_Store
+Thumbs.db
+>>>>>>> 56932f9a07cd45c380cbf6ee06d3c61a0338e744
