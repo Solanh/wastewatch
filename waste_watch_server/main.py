@@ -109,6 +109,13 @@ def get_items_by_name(name: str):
         return items
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+<<<<<<< HEAD:waste_watch_server/main.py
+    
+@app.put("/items/{item_name}")
+def increment_item_waste(item_name: str):
+    result = collection.update_one(
+        {"item": item_name},
+=======
 
 
 @app.put("/items/{item_id}")
@@ -117,13 +124,18 @@ def increment_item_waste(item_id: str):
 
     result = collection.update_one(
         {"_id": oid},
+>>>>>>> 7be6d0190c5265ca7db662e94b55897390438308:waste-watch-server/main.py
         {"$inc": {"wasted": 1}}
     )
 
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Item not found")
 
+<<<<<<< HEAD:waste_watch_server/main.py
+    updated = collection.find_one({"item": item_name})
+=======
     updated = collection.find_one({"_id": oid})
+>>>>>>> 7be6d0190c5265ca7db662e94b55897390438308:waste-watch-server/main.py
     updated["_id"] = str(updated["_id"])
     return updated
 
