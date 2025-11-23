@@ -12,6 +12,11 @@ model = YOLO("/home/adpifive/Documents/wastewatch/best.pt")
 while True:
     frame = picam2.capture_array()
     results = model(frame, stream=True)
+    r = results[0]
+    for box in r.boxes:
+        class_id = int(box.cls)
+        class_name = model.names[class_id]
+        print(f"Detected: {class_name}")
     annotated_frame = results[0].plot()
     cv2.imshow("YOLO Camera", annotated_frame)
 
