@@ -86,7 +86,7 @@ wastewatch/
 
 ### Prerequisites
 
-- **Python 3.8-3.11** (3.11 recommended for best ML library compatibility)
+- **Python 3.8-3.11** (3.11 recommended - provides best balance of PyTorch/CUDA support and performance)
 - **Node.js 18+** and npm
 - **MongoDB** (local or MongoDB Atlas)
 - **CUDA-capable GPU** (optional, for training)
