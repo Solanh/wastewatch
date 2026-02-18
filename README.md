@@ -86,7 +86,7 @@ wastewatch/
 
 ### Prerequisites
 
-- **Python 3.11+**
+- **Python 3.8+** (3.11+ recommended for optimal performance)
 - **Node.js 18+** and npm
 - **MongoDB** (local or MongoDB Atlas)
 - **CUDA-capable GPU** (optional, for training)
