@@ -86,7 +86,7 @@ wastewatch/
 
 ### Prerequisites
 
-- **Python 3.8+** (3.11+ recommended for optimal performance)
+- **Python 3.8-3.11** (3.11 recommended for best ML library compatibility)
 - **Node.js 18+** and npm
 - **MongoDB** (local or MongoDB Atlas)
 - **CUDA-capable GPU** (optional, for training)
@@ -198,7 +198,8 @@ python start_cam.py
 ```
 
 Features:
-- Real-time food detection with confidence threshold (0.3)
+- Real-time food detection with configurable confidence threshold (default: 0.3)
+  - Note: The 0.3 threshold balances detection sensitivity and accuracy. Adjust in `start_cam.py` if needed for your use case
 - Automatic waste tracking for detected items
 - Visual feedback with annotated frames
 - Press 'q' to quit and save detected items
