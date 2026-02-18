@@ -267,6 +267,7 @@ This project is open source and available for educational and commercial use.
 
 - Sarina ([stalerico](https://github.com/stalerico))
 - Solanh ([Solanh](https://github.com/Solanh))
+- Adam  ([C-Adam](https://github.com/C-Adam))
 
 ## 🙏 Acknowledgments
 
